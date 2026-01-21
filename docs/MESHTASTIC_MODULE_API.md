@@ -15,6 +15,18 @@ A comprehensive guide for implementing custom modules using the Meshtastic Pytho
 7. [Packet Structure](#packet-structure)
 8. [Custom Module Implementation](#custom-module-implementation)
 9. [Complete API Reference](#complete-api-reference)
+10. [CLI Device Configuration](#cli-device-configuration)
+    - [Connection Options](#connection-options)
+    - [Device Configuration](#device-configuration-device)
+    - [LoRa Configuration](#lora-configuration-lora)
+    - [Power Configuration](#power-configuration-power)
+    - [Position/GPS Configuration](#positiongps-configuration-position)
+    - [Network Configuration](#network-configuration-network)
+    - [Bluetooth Configuration](#bluetooth-configuration-bluetooth)
+    - [Display Configuration](#display-configuration-display)
+    - [Channel Configuration](#channel-configuration)
+    - [Module Configuration](#module-configuration)
+    - [Python API Configuration Examples](#python-api-configuration-examples)
 
 ---
 
@@ -925,11 +937,830 @@ if __name__ == "__main__":
 
 ---
 
+## CLI Device Configuration
+
+The Meshtastic Python CLI provides comprehensive device configuration capabilities. This section documents all configuration commands and options.
+
+### Connection Options
+
+```bash
+# Auto-detect device
+meshtastic --info
+
+# Specify serial port
+meshtastic --port /dev/ttyUSB0 --info
+meshtastic --port COM4 --info
+
+# Connect via TCP/WiFi
+meshtastic --host 192.168.1.100 --info
+
+# Connect via Bluetooth
+meshtastic --ble-scan                    # Scan for BLE devices
+meshtastic --ble Meshtastic_1234 --info  # Connect by name
+meshtastic --ble AA:BB:CC:DD:EE:FF --info # Connect by address
+```
+
+### Device Information Commands
+
+```bash
+# Display device info
+meshtastic --info
+
+# List all nodes in mesh
+meshtastic --nodes
+
+# Get all preferences (list available options)
+meshtastic --get all
+
+# Get specific configuration section
+meshtastic --get lora
+meshtastic --get device
+meshtastic --get position
+meshtastic --get power
+meshtastic --get network
+meshtastic --get bluetooth
+meshtastic --get display
+
+# Get specific setting
+meshtastic --get lora.region
+meshtastic --get device.role
+```
+
+### Configuration Export/Import
+
+```bash
+# Export full device configuration to YAML
+meshtastic --export-config > my_device_config.yaml
+
+# Import configuration from YAML file
+meshtastic --configure my_device_config.yaml
+
+# Set configuration via URL (from QR code)
+meshtastic --seturl "https://meshtastic.org/e/#..."
+```
+
+---
+
+### Device Configuration (device.*)
+
+Configure basic device behavior and identity.
+
+```bash
+# Set device owner name (long name)
+meshtastic --set-owner "My Node Name"
+
+# Set short name (max 4 characters)
+meshtastic --set-owner-short "NODE"
+
+# Set as ham radio operator (disables encryption)
+meshtastic --set-ham "KD1ABC"
+```
+
+#### Device Roles
+
+```bash
+meshtastic --set device.role CLIENT
+```
+
+| Role | Description |
+|------|-------------|
+| `CLIENT` | Standard messaging with rebroadcasting (default) |
+| `CLIENT_MUTE` | Receives but doesn't rebroadcast |
+| `CLIENT_HIDDEN` | Hidden from node list, prioritizes GPS |
+| `TRACKER` | Optimized for location broadcasting |
+| `LOST_AND_FOUND` | Regularly broadcasts location for recovery |
+| `SENSOR` | Prioritizes telemetry data |
+| `TAK` | ATAK system integration |
+| `TAK_TRACKER` | Automatic tactical PLI broadcasts |
+| `REPEATER` | Infrastructure node (hidden from list) |
+| `ROUTER` | Infrastructure node (visible) |
+| `ROUTER_LATE` | Rebroadcasts after other nodes |
+
+#### Rebroadcast Modes
+
+```bash
+meshtastic --set device.rebroadcast_mode ALL
+```
+
+| Mode | Description |
+|------|-------------|
+| `ALL` | Rebroadcasts all messages (default) |
+| `ALL_SKIP_DECODING` | Rebroadcasts without decoding |
+| `LOCAL_ONLY` | Ignores messages from other meshes |
+| `KNOWN_ONLY` | Only rebroadcasts from known nodes |
+| `NONE` | Disables rebroadcasting |
+| `CORE_PORTNUMS_ONLY` | Only standard portnum packets |
+
+#### Other Device Settings
+
+```bash
+# Node info broadcast interval (seconds, default: 10800 = 3 hours)
+meshtastic --set device.node_info_broadcast_secs 10800
+
+# Disable double-tap detection
+meshtastic --set device.double_tap_as_button_press false
+
+# Set timezone (TZ database format)
+meshtastic --set device.tzdef "EST5EDT,M3.2.0,M11.1.0"
+
+# Disable LED heartbeat
+meshtastic --set device.led_heartbeat_disabled true
+```
+
+---
+
+### LoRa Configuration (lora.*)
+
+Configure radio parameters for your region and use case.
+
+#### Region Setting (Required)
+
+```bash
+meshtastic --set lora.region US
+```
+
+| Region | Frequency | Notes |
+|--------|-----------|-------|
+| `US` | 902-928 MHz | North America |
+| `EU_868` | 869.4-869.65 MHz | Europe |
+| `EU_433` | 433-434 MHz | Europe (433 MHz) |
+| `CN` | 470-510 MHz | China |
+| `JP` | 920-925 MHz | Japan |
+| `ANZ` | 915-928 MHz | Australia/New Zealand |
+| `IN` | 865-867 MHz | India |
+| `KR` | 920-923 MHz | Korea |
+| `TW` | 920-925 MHz | Taiwan |
+| `RU` | 868-869 MHz | Russia |
+| `UA` | 868-869 MHz | Ukraine |
+| `LORA_24` | 2.4 GHz | Worldwide (2.4 GHz) |
+| `UNSET` | - | Not configured |
+
+#### Modem Presets
+
+```bash
+meshtastic --set lora.modem_preset LONG_FAST
+```
+
+| Preset | Speed | Range | Use Case |
+|--------|-------|-------|----------|
+| `SHORT_TURBO` | Fastest | Shortest | High-speed, short range |
+| `SHORT_FAST` | Very Fast | Short | Quick messaging nearby |
+| `SHORT_SLOW` | Fast | Short | Balanced short range |
+| `MEDIUM_FAST` | Medium | Medium | General use |
+| `MEDIUM_SLOW` | Slower | Medium | Better range, medium speed |
+| `LONG_FAST` | Default | Long | **Default** - good balance |
+| `LONG_MODERATE` | Slow | Longer | Extended range |
+| `LONG_SLOW` | Very Slow | Very Long | Maximum range |
+| `VERY_LONG_SLOW` | Slowest | Maximum | Extreme range |
+
+#### Advanced Radio Parameters
+
+```bash
+# Bandwidth (kHz): 31, 62, 125, 250, 500
+meshtastic --set lora.bandwidth 250
+
+# Spreading Factor: 7-12 (higher = longer range, slower)
+meshtastic --set lora.spread_factor 12
+
+# Coding Rate: 5-8 (higher = more error correction)
+meshtastic --set lora.coding_rate 8
+
+# Hop Limit: 1-7 (max relay hops, default: 3)
+meshtastic --set lora.hop_limit 3
+
+# TX Power: 0-30 dBm (0 = use legal max)
+meshtastic --set lora.tx_power 0
+
+# Enable/disable transmit
+meshtastic --set lora.tx_enabled true
+
+# Frequency offset (Hz)
+meshtastic --set lora.frequency_offset 0
+```
+
+---
+
+### Power Configuration (power.*)
+
+Optimize power consumption for battery-powered deployments.
+
+```bash
+# Enable power saving mode (disables BT, Serial, WiFi, Screen)
+meshtastic --set power.is_power_saving true
+
+# Shutdown after losing external power (seconds, 0 = disabled)
+meshtastic --set power.on_battery_shutdown_after_secs 0
+
+# Light sleep interval - ESP32 only (seconds, default: 300)
+meshtastic --set power.ls_secs 300
+
+# Minimum wake time after receiving packet (seconds, default: 10)
+meshtastic --set power.min_wake_secs 10
+
+# Bluetooth timeout when inactive (seconds, default: 60)
+meshtastic --set power.wait_bluetooth_secs 60
+
+# Keep Bluetooth alive for 8 hours
+meshtastic --set power.wait_bluetooth_secs 28800
+
+# ADC multiplier for battery voltage (2.0-6.0)
+meshtastic --set power.adc_multiplier_override 2.0
+```
+
+---
+
+### Position/GPS Configuration (position.*)
+
+Configure GPS and position broadcasting behavior.
+
+```bash
+# Set fixed position (disables GPS updates)
+meshtastic --setlat 37.7749 --setlon -122.4194 --setalt 10
+
+# GPS Mode: ENABLED, DISABLED, NOT_PRESENT
+meshtastic --set position.gps_mode ENABLED
+
+# GPS update interval (seconds, default: 120)
+meshtastic --set position.gps_update_interval 120
+
+# Position broadcast interval (seconds, default: 900 = 15 min)
+meshtastic --set position.position_broadcast_secs 900
+
+# Enable smart broadcast (sends more often when moving)
+meshtastic --set position.position_broadcast_smart_enabled true
+
+# Smart broadcast minimum distance (meters, default: 100)
+meshtastic --set position.broadcast_smart_minimum_distance 100
+
+# Smart broadcast minimum interval (seconds, default: 30)
+meshtastic --set position.broadcast_smart_minimum_interval_secs 30
+
+# Fixed position mode
+meshtastic --set position.fixed_position true
+```
+
+#### Position Flags
+
+Control what data is included in position broadcasts:
+
+```bash
+# Enable altitude
+meshtastic --set position.position_flags 1
+
+# Common flag combinations (bitfield):
+# ALTITUDE = 1, ALTITUDE_MSL = 2, GEOIDAL_SEPARATION = 4
+# DOP = 8, HVDOP = 16, SATINVIEW = 32, SEQ_NO = 64
+# TIMESTAMP = 128, HEADING = 256, SPEED = 512
+```
+
+---
+
+### Network Configuration (network.*)
+
+Configure WiFi and Ethernet connectivity.
+
+```bash
+# Enable WiFi (Note: disables Bluetooth)
+meshtastic --set network.wifi_enabled true
+meshtastic --set network.wifi_ssid "MyNetwork"
+meshtastic --set network.wifi_psk "MyPassword"
+
+# Full WiFi setup in one command
+meshtastic --set network.wifi_enabled 1 \
+           --set network.wifi_ssid "MyNetwork" \
+           --set network.wifi_psk "MyPassword"
+
+# Enable Ethernet
+meshtastic --set network.eth_enabled true
+
+# IPv4 Mode: DHCP or STATIC
+meshtastic --set network.address_mode DHCP
+
+# Static IP configuration
+meshtastic --set network.address_mode STATIC
+meshtastic --set network.ipv4_config.ip 192.168.1.100
+meshtastic --set network.ipv4_config.gateway 192.168.1.1
+meshtastic --set network.ipv4_config.subnet 255.255.255.0
+meshtastic --set network.ipv4_config.dns 8.8.8.8
+
+# NTP server (default: meshtastic.pool.ntp.org)
+meshtastic --set network.ntp_server "pool.ntp.org"
+
+# Rsyslog server for remote logging
+meshtastic --set network.rsyslog_server "192.168.1.50"
+```
+
+---
+
+### Bluetooth Configuration (bluetooth.*)
+
+Configure Bluetooth connectivity.
+
+```bash
+# Enable/disable Bluetooth
+meshtastic --set bluetooth.enabled true
+
+# Bluetooth pairing mode: RANDOM_PIN, FIXED_PIN, NO_PIN
+meshtastic --set bluetooth.mode RANDOM_PIN
+
+# Set fixed PIN (when using FIXED_PIN mode)
+meshtastic --set bluetooth.fixed_pin 123456
+```
+
+---
+
+### Display Configuration (display.*)
+
+Configure screen and UI settings.
+
+```bash
+# Screen timeout (seconds, 0 = always on)
+meshtastic --set display.screen_on_secs 60
+
+# Auto-carousel interval (seconds)
+meshtastic --set display.auto_screen_carousel_secs 10
+
+# Compass north orientation: DEGREES_0, DEGREES_90, DEGREES_180, DEGREES_270
+meshtastic --set display.compass_north_top true
+
+# Flip screen
+meshtastic --set display.flip_screen true
+
+# Display units: METRIC, IMPERIAL
+meshtastic --set display.units METRIC
+
+# OLED type: OLED_AUTO, OLED_SSD1306, OLED_SH1106, OLED_SH1107
+meshtastic --set display.oled OLED_AUTO
+```
+
+---
+
+### Channel Configuration
+
+Channels define encryption keys and communication groups.
+
+```bash
+# View channel info
+meshtastic --info
+
+# Set channel name (on channel index 1)
+meshtastic --ch-set name "MyChannel" --ch-index 1
+
+# Apply modem preset to channel
+meshtastic --ch-longslow      # Long range, slow
+meshtastic --ch-longfast      # Long range, fast (default)
+meshtastic --ch-medslow       # Medium range, slow
+meshtastic --ch-medfast       # Medium range, fast
+meshtastic --ch-shortslow     # Short range, slow
+meshtastic --ch-shortfast     # Short range, fast
+
+# Add a secondary channel
+meshtastic --ch-add "SecureChannel"
+
+# Delete a channel
+meshtastic --ch-del --ch-index 2
+```
+
+#### Channel Encryption (PSK)
+
+```bash
+# Set random AES256 key
+meshtastic --ch-set psk random --ch-index 0
+
+# Set default AES128 key
+meshtastic --ch-set psk default --ch-index 0
+
+# Disable encryption
+meshtastic --ch-set psk none --ch-index 0
+
+# Set custom key (base64)
+meshtastic --ch-set psk base64:puavdd7vtYJh8NUVWgxbsoG2u9Sdqc54YvMLs+KNcMA= --ch-index 0
+
+# Set custom key (hex)
+meshtastic --ch-set psk 0x1a1a1a1a2b2b2b2b1a1a1a1a2b2b2b2b1a1a1a1a2b2b2b2b1a1a1a1a2b2b2b2b --ch-index 0
+```
+
+#### Channel Settings
+
+```bash
+# Uplink enabled (send to MQTT)
+meshtastic --ch-set uplink_enabled true --ch-index 0
+
+# Downlink enabled (receive from MQTT)
+meshtastic --ch-set downlink_enabled true --ch-index 0
+```
+
+---
+
+### Module Configuration
+
+#### MQTT Module (mqtt.*)
+
+```bash
+# Enable MQTT
+meshtastic --set mqtt.enabled true
+
+# Server settings
+meshtastic --set mqtt.address "mqtt.example.com"
+meshtastic --set mqtt.username "user"
+meshtastic --set mqtt.password "pass"
+
+# Enable TLS
+meshtastic --set mqtt.tls_enabled true
+
+# Enable encryption for MQTT messages
+meshtastic --set mqtt.encryption_enabled true
+
+# Enable JSON output (not supported on nRF52)
+meshtastic --set mqtt.json_enabled true
+
+# Custom root topic
+meshtastic --set mqtt.root "mymesh"
+
+# Map reporting (v2.3.2+)
+meshtastic --set mqtt.map_reporting_enabled true
+meshtastic --set mqtt.map_publish_interval_secs 3600
+```
+
+#### Telemetry Module (telemetry.*)
+
+```bash
+# Device metrics interval (seconds, default: 1800)
+meshtastic --set telemetry.device_update_interval 1800
+
+# Enable environment telemetry
+meshtastic --set telemetry.environment_measurement_enabled true
+meshtastic --set telemetry.environment_update_interval 1800
+
+# Display temperature in Fahrenheit
+meshtastic --set telemetry.environment_display_fahrenheit true
+
+# Enable air quality metrics
+meshtastic --set telemetry.air_quality_enabled true
+meshtastic --set telemetry.air_quality_interval 1800
+
+# Enable power metrics
+meshtastic --set telemetry.power_measurement_enabled true
+meshtastic --set telemetry.power_update_interval 1800
+```
+
+#### Serial Module (serial.*)
+
+```bash
+# Enable serial module
+meshtastic --set serial.enabled true
+
+# Mode: SIMPLE, PROTO, TEXTMSG, NMEA, CALTOPO, WS85
+meshtastic --set serial.mode TEXTMSG
+
+# Baud rate
+meshtastic --set serial.baud BAUD_115200
+
+# GPIO pins (1-39 for RX, 1-33 for TX)
+meshtastic --set serial.rxd 16
+meshtastic --set serial.txd 17
+
+# Timeout (milliseconds, 0 = 250ms default)
+meshtastic --set serial.timeout 0
+
+# Echo received packets
+meshtastic --set serial.echo true
+```
+
+#### Range Test Module (range_test.*)
+
+```bash
+# Enable range test
+meshtastic --set range_test.enabled true
+
+# Sender interval (seconds)
+meshtastic --set range_test.sender 30
+
+# Save to file (ESP32 with SD card)
+meshtastic --set range_test.save true
+```
+
+#### Store & Forward Module (store_forward.*)
+
+```bash
+# Enable store & forward
+meshtastic --set store_forward.enabled true
+
+# Heartbeat interval (seconds)
+meshtastic --set store_forward.heartbeat true
+
+# Number of records to store
+meshtastic --set store_forward.records 100
+
+# History return max messages
+meshtastic --set store_forward.history_return_max 100
+
+# History return window (seconds)
+meshtastic --set store_forward.history_return_window 7200
+```
+
+#### External Notification Module (external_notification.*)
+
+```bash
+# Enable external notification
+meshtastic --set external_notification.enabled true
+
+# GPIO pin for output
+meshtastic --set external_notification.output 13
+
+# Output duration (milliseconds)
+meshtastic --set external_notification.output_ms 1000
+
+# Active high/low
+meshtastic --set external_notification.active true
+
+# Alert on message
+meshtastic --set external_notification.alert_message true
+
+# Alert on bell character
+meshtastic --set external_notification.alert_bell true
+
+# Use PWM buzzer
+meshtastic --set external_notification.use_pwm true
+```
+
+#### Canned Message Module (canned_message.*)
+
+```bash
+# Enable canned messages
+meshtastic --set canned_message.enabled true
+
+# Set messages (pipe-separated)
+meshtastic --set canned_message.messages "Help|OK|On my way|Be there soon"
+
+# Rotary encoder settings
+meshtastic --set canned_message.rotary1_enabled true
+meshtastic --set canned_message.inputbroker_pin_a 12
+meshtastic --set canned_message.inputbroker_pin_b 13
+meshtastic --set canned_message.inputbroker_pin_press 14
+```
+
+---
+
+### Device Management Commands
+
+```bash
+# Reboot device
+meshtastic --reboot
+
+# Shutdown device
+meshtastic --shutdown
+
+# Factory reset (erases all settings)
+meshtastic --factory-reset
+
+# Reset node database only
+meshtastic --reset-nodedb
+
+# Enter DFU mode (firmware update)
+meshtastic --enter-dfu
+
+# Set device to remote node
+meshtastic --dest '!abcd1234' --set device.role ROUTER
+```
+
+---
+
+### Sending Messages via CLI
+
+```bash
+# Send text message to all nodes
+meshtastic --sendtext "Hello mesh!"
+
+# Send to specific node
+meshtastic --sendtext "Hello!" --dest "!abcd1234"
+
+# Send on specific channel
+meshtastic --sendtext "Private message" --ch-index 1
+
+# Request position from node
+meshtastic --request-position --dest "!abcd1234"
+
+# Send trace route
+meshtastic --traceroute "!abcd1234"
+```
+
+---
+
+### Debugging & Troubleshooting
+
+```bash
+# Enable debug output
+meshtastic --debug --info
+
+# Serial terminal mode (no protocol)
+meshtastic --noproto
+
+# List serial ports
+meshtastic --port list
+
+# Test with specific timeout
+meshtastic --timeout 30 --info
+```
+
+#### Linux Permission Fix
+
+```bash
+# Add user to dialout group
+sudo usermod -a -G dialout $USER
+# Log out and back in for changes to take effect
+```
+
+---
+
+### Python API Configuration Examples
+
+Configure devices programmatically using the Python API:
+
+```python
+import meshtastic
+import meshtastic.serial_interface
+
+# Connect to device
+interface = meshtastic.serial_interface.SerialInterface()
+
+# Get local node
+ourNode = interface.getNode('^local')
+
+# Read current configuration
+print(f"Current region: {ourNode.localConfig.lora.region}")
+print(f"Current role: {ourNode.localConfig.device.role}")
+
+# Modify LoRa settings
+ourNode.localConfig.lora.region = 1  # US
+ourNode.localConfig.lora.hop_limit = 5
+ourNode.writeConfig("lora")
+
+# Modify device settings
+ourNode.localConfig.device.role = 1  # CLIENT
+ourNode.writeConfig("device")
+
+# Modify power settings
+ourNode.localConfig.power.is_power_saving = True
+ourNode.localConfig.power.wait_bluetooth_secs = 3600
+ourNode.writeConfig("power")
+
+# Modify position settings
+ourNode.localConfig.position.gps_update_interval = 60
+ourNode.localConfig.position.position_broadcast_secs = 300
+ourNode.writeConfig("position")
+
+# Modify module settings
+ourNode.moduleConfig.telemetry.device_update_interval = 900
+ourNode.writeConfig("telemetry")
+
+ourNode.moduleConfig.mqtt.enabled = True
+ourNode.moduleConfig.mqtt.address = "mqtt.example.com"
+ourNode.writeConfig("mqtt")
+
+# Configure channel
+channel = ourNode.channels[0]
+channel.settings.name = "MyMesh"
+ourNode.writeChannel(0)
+
+# Close connection
+interface.close()
+```
+
+### Complete Configuration Script Example
+
+```python
+#!/usr/bin/env python3
+"""
+Complete Meshtastic Device Configuration Script
+Configures a device for optimal mesh network operation.
+"""
+
+import meshtastic
+import meshtastic.serial_interface
+import sys
+import time
+
+
+def configure_device(device_path=None):
+    """Configure a Meshtastic device with optimal settings."""
+
+    # Connect to device
+    print("Connecting to device...")
+    if device_path:
+        interface = meshtastic.serial_interface.SerialInterface(devPath=device_path)
+    else:
+        interface = meshtastic.serial_interface.SerialInterface()
+
+    # Wait for connection
+    time.sleep(2)
+
+    # Get local node
+    ourNode = interface.getNode('^local')
+
+    print(f"Connected to: {interface.getLongName()}")
+    print(f"Node ID: {interface.getMyNodeInfo()['user']['id']}")
+
+    # =====================
+    # LoRa Configuration
+    # =====================
+    print("\nConfiguring LoRa settings...")
+    ourNode.localConfig.lora.region = 1  # US
+    ourNode.localConfig.lora.modem_preset = 5  # LONG_FAST
+    ourNode.localConfig.lora.hop_limit = 3
+    ourNode.localConfig.lora.tx_enabled = True
+    ourNode.writeConfig("lora")
+    print("  - Region: US")
+    print("  - Modem Preset: LONG_FAST")
+    print("  - Hop Limit: 3")
+
+    # =====================
+    # Device Configuration
+    # =====================
+    print("\nConfiguring device settings...")
+    ourNode.localConfig.device.role = 1  # CLIENT
+    ourNode.localConfig.device.node_info_broadcast_secs = 10800  # 3 hours
+    ourNode.writeConfig("device")
+    print("  - Role: CLIENT")
+    print("  - Node Info Broadcast: 3 hours")
+
+    # =====================
+    # Position Configuration
+    # =====================
+    print("\nConfiguring position settings...")
+    ourNode.localConfig.position.gps_update_interval = 120
+    ourNode.localConfig.position.position_broadcast_secs = 900  # 15 min
+    ourNode.localConfig.position.position_broadcast_smart_enabled = True
+    ourNode.localConfig.position.broadcast_smart_minimum_distance = 100
+    ourNode.localConfig.position.broadcast_smart_minimum_interval_secs = 30
+    ourNode.writeConfig("position")
+    print("  - GPS Update: 2 minutes")
+    print("  - Position Broadcast: 15 minutes")
+    print("  - Smart Broadcast: Enabled")
+
+    # =====================
+    # Power Configuration
+    # =====================
+    print("\nConfiguring power settings...")
+    ourNode.localConfig.power.wait_bluetooth_secs = 3600  # 1 hour
+    ourNode.localConfig.power.ls_secs = 300  # 5 min light sleep
+    ourNode.localConfig.power.min_wake_secs = 10
+    ourNode.writeConfig("power")
+    print("  - Bluetooth Timeout: 1 hour")
+    print("  - Light Sleep: 5 minutes")
+
+    # =====================
+    # Telemetry Configuration
+    # =====================
+    print("\nConfiguring telemetry...")
+    ourNode.moduleConfig.telemetry.device_update_interval = 1800
+    ourNode.moduleConfig.telemetry.environment_measurement_enabled = True
+    ourNode.moduleConfig.telemetry.environment_update_interval = 1800
+    ourNode.writeConfig("telemetry")
+    print("  - Device Metrics: 30 minutes")
+    print("  - Environment: Enabled (30 min)")
+
+    # =====================
+    # Channel Configuration
+    # =====================
+    print("\nConfiguring primary channel...")
+    # Channel name
+    ourNode.channels[0].settings.name = "MyMesh"
+    ourNode.writeChannel(0)
+    print("  - Channel Name: MyMesh")
+
+    print("\n" + "="*50)
+    print("Configuration complete!")
+    print("Device will reboot to apply settings.")
+    print("="*50)
+
+    # Close connection
+    interface.close()
+
+
+if __name__ == "__main__":
+    device = sys.argv[1] if len(sys.argv) > 1 else None
+    configure_device(device)
+```
+
+---
+
 ## Sources
 
 - [Meshtastic Python API Documentation](https://python.meshtastic.org/)
 - [MeshInterface API](https://python.meshtastic.org/mesh_interface.html)
 - [Meshtastic Python Library Usage](https://meshtastic.org/docs/development/python/library/)
+- [Meshtastic Python CLI Guide](https://meshtastic.org/docs/software/python/cli/)
+- [Meshtastic Python CLI Usage](https://meshtastic.org/docs/software/python/cli/usage/)
+- [Device Configuration](https://meshtastic.org/docs/configuration/radio/device/)
+- [LoRa Configuration](https://meshtastic.org/docs/configuration/radio/lora/)
+- [Power Configuration](https://meshtastic.org/docs/configuration/radio/power/)
+- [Position Configuration](https://meshtastic.org/docs/configuration/radio/position/)
+- [Network Configuration](https://meshtastic.org/docs/configuration/radio/network/)
+- [Module Configuration](https://meshtastic.org/docs/configuration/module/)
+- [MQTT Module](https://meshtastic.org/docs/configuration/module/mqtt/)
+- [Telemetry Module](https://meshtastic.org/docs/configuration/module/telemetry/)
+- [Serial Module](https://meshtastic.org/docs/configuration/module/serial/)
 - [Port Numbers Documentation](https://meshtastic.org/docs/development/firmware/portnum/)
 - [Port Numbers Protobuf](https://github.com/meshtastic/protobufs/blob/master/meshtastic/portnums.proto)
 - [Meshtastic Python GitHub](https://github.com/meshtastic/python)
