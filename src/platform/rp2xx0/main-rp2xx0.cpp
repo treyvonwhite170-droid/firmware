@@ -4,9 +4,9 @@
 #include <hardware/pll.h>
 #include <pico/stdlib.h>
 #include <pico/unique_id.h>
+#include <pico/sleep.h>
 
 #ifdef __PLAT_RP2040__
-#include <pico/sleep.h>
 
 static bool awake;
 
@@ -66,12 +66,85 @@ void cpuDeepSleep(uint32_t msecs)
     // xosc_dormant();
 }
 
-#else
+#else // RP2350
+
+static volatile bool rp2350_awake = false;
+
+static void rp2350_sleep_callback(void)
+{
+    rp2350_awake = true;
+}
+
 void cpuDeepSleep(uint32_t msecs)
 {
-    /* Set RP2040 in dormant mode. Will not wake up. */
-    xosc_dormant();
+    rp2350_awake = false;
+
+    // Wait for any pending UART transmissions
+    uart_default_tx_wait_blocking();
+
+    // Configure for low-power operation using LPOSC
+    // LPOSC provides ~32kHz timing with very low power consumption
+    sleep_run_from_lposc();
+
+    // Enter dormant mode with timer wakeup
+    // This uses the POWMAN AON timer which continues running from LPOSC
+    sleep_goto_dormant_for_ms(msecs, &rp2350_sleep_callback);
+
+    // Wait for wakeup confirmation
+    while (!rp2350_awake) {
+        tight_loop_contents();
+    }
+
+    // Restore full clock configuration
+    sleep_power_up();
+
+    // Note: Unlike RP2040, RP2350 can recover from dormant mode
+    // without a full reboot in many cases. However, for consistency
+    // with the existing firmware behavior and to ensure all peripherals
+    // are properly reinitialized, we still reboot.
+    // If you want to avoid reboot, comment out the line below and
+    // ensure all peripherals are properly reinitialized.
+    rp2040.reboot();
 }
+
+// Alternative sleep function that doesn't reboot (experimental)
+void cpuLightSleep(uint32_t msecs)
+{
+    rp2350_awake = false;
+
+    uart_default_tx_wait_blocking();
+
+    // Use XOSC for more accurate timing but higher power
+    sleep_run_from_xosc();
+
+    // Enter sleep mode (not full dormant)
+    sleep_goto_sleep_for_ms(msecs, &rp2350_sleep_callback);
+
+    while (!rp2350_awake) {
+        tight_loop_contents();
+    }
+
+    // Restore clocks
+    sleep_power_up();
+
+    // No reboot needed for light sleep
+}
+
+// GPIO-triggered dormant mode for RP2350
+void cpuDormantUntilPin(uint gpio_pin, bool edge, bool high)
+{
+    uart_default_tx_wait_blocking();
+
+    // Configure for dormant mode
+    sleep_run_from_xosc();
+
+    // Enter dormant until GPIO triggers wakeup
+    sleep_goto_dormant_until_pin(gpio_pin, edge, high);
+
+    // Restore clocks
+    sleep_power_up();
+}
+
 #endif
 
 void setBluetoothEnable(bool enable)
