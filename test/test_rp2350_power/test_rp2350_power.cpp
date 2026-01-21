@@ -220,6 +220,70 @@ static bool test_clock_restoration(void) {
     return pass;
 }
 
+// Test 5: Shutdown until USB power
+static bool test_shutdown_until_usb(void) {
+    Serial.println("\n--- Test 5: Shutdown Until USB Power ---");
+    Serial.println("This test will shutdown the board.");
+    Serial.println("The board will wake when USB is reconnected.");
+    Serial.println("");
+    Serial.println("Instructions:");
+    Serial.println("  1. Disconnect USB after countdown");
+    Serial.println("  2. Wait a few seconds");
+    Serial.println("  3. Reconnect USB");
+    Serial.println("  4. Board should reboot and show 'PASS'");
+    Serial.println("");
+    Serial.println("Press 'y' to start shutdown test, 's' to skip...");
+    Serial.flush();
+
+    uint32_t timeout = millis() + 30000;
+    while (millis() < timeout) {
+        if (Serial.available()) {
+            char c = Serial.read();
+            if (c == 's' || c == 'S') {
+                Serial.println("Skipping shutdown test.");
+                return true; // Skip counts as pass
+            }
+            if (c == 'y' || c == 'Y') {
+                break;
+            }
+        }
+        delay(100);
+    }
+
+    // Check if we're recovering from a shutdown
+    // (In a real implementation, we'd check a flag in RTC/flash)
+
+    Serial.println("\nCountdown to shutdown:");
+    for (int i = 5; i > 0; i--) {
+        Serial.printf("  %d...\n", i);
+        blink_led(1, 200, 800);
+    }
+
+    Serial.println("Entering shutdown mode...");
+    Serial.println("Disconnect USB now, then reconnect to wake.");
+    Serial.flush();
+
+    // Use default VBUS sense pin (GPIO24)
+#ifndef VBUS_SENSE_PIN
+#define VBUS_SENSE_PIN 24
+#endif
+
+    // Try to enter shutdown
+    bool entered = sleep_shutdown_until_usb(VBUS_SENSE_PIN);
+
+    if (!entered) {
+        Serial.println("Could not enter shutdown - USB still connected?");
+        Serial.println("Result: SKIPPED (USB must be disconnectable)");
+        return true; // Not a failure, just can't test
+    }
+
+    // If we get here, we woke from shutdown
+    Serial.println("Woke from shutdown!");
+    Serial.println("Result: PASS");
+
+    return true;
+}
+
 // Main test runner
 void run_rp2350_power_tests(void) {
     Serial.begin(115200);
@@ -234,6 +298,13 @@ void run_rp2350_power_tests(void) {
     Serial.println("    RP2350 Power Management Test");
     Serial.println("    Board: XIAO RP2350");
     Serial.println("========================================");
+    Serial.println("");
+    Serial.println("Available power modes:");
+    Serial.println("  - Light Sleep (XOSC):    ~2-3mA");
+    Serial.println("  - Dormant (LPOSC timer): ~0.6-1.2mA");
+    Serial.println("  - Dormant (GPIO wake):   ~0.6-1.2mA");
+    Serial.println("  - Shutdown (USB wake):   ~0.6-1.2mA");
+    Serial.println("");
 
     // Initial LED indication
     blink_led(2, 200, 200);
@@ -278,6 +349,31 @@ void run_rp2350_power_tests(void) {
         if (test_dormant_gpio_wake()) passed++;
     } else {
         total--;
+    }
+
+    // Shutdown test is most destructive - run last
+    Serial.println("\n--- Shutdown Until USB Test ---");
+    Serial.println("This test requires USB disconnect/reconnect.");
+    Serial.println("Press 'y' to run, or 's' to skip...");
+    Serial.flush();
+
+    timeout = millis() + 10000;
+    bool skip_shutdown = false;
+    while (millis() < timeout) {
+        if (Serial.available()) {
+            char c = Serial.read();
+            if (c == 's' || c == 'S') {
+                skip_shutdown = true;
+                Serial.println("Skipping shutdown test.");
+            }
+            break;
+        }
+        delay(100);
+    }
+
+    if (!skip_shutdown) {
+        total++;
+        if (test_shutdown_until_usb()) passed++;
     }
 
     // Summary

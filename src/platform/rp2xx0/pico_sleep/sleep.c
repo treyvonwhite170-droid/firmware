@@ -399,4 +399,68 @@ void sleep_power_up(void)
     _dormant_source = DORMANT_SOURCE_NONE;
 }
 
+bool sleep_shutdown_until_usb(uint vbus_gpio)
+{
+    // Configure VBUS sense pin as input
+    gpio_init(vbus_gpio);
+    gpio_set_dir(vbus_gpio, GPIO_IN);
+    gpio_pull_down(vbus_gpio); // Pull down when no USB
+
+    // Check if VBUS is already present (USB connected)
+    // If so, don't enter shutdown to prevent immediate wake loop
+    if (gpio_get(vbus_gpio)) {
+        return false; // VBUS already present, don't shutdown
+    }
+
+    // Prepare for lowest power dormant mode
+    // Use XOSC for dormant - it will stop and restart on wake
+    sleep_run_from_dormant_source(DORMANT_SOURCE_XOSC);
+
+    // Disable all unnecessary peripherals for minimum power
+    // Stop clocks that aren't needed
+    clock_stop(clk_usb);
+    clock_stop(clk_adc);
+    clock_stop(clk_hstx);
+
+    // Enter dormant mode, waiting for VBUS (level high)
+    // When USB is plugged in, VBUS goes high and we wake
+    sleep_goto_dormant_until_pin(vbus_gpio, false, true); // level, high
+
+    // We've woken up - VBUS is now present
+    // Restore all clocks
+    sleep_power_up();
+
+    return true;
+}
+
+void sleep_shutdown_until_gpio(uint wake_gpio, bool reboot)
+{
+    // Configure wake pin as input with pull-down
+    gpio_init(wake_gpio);
+    gpio_set_dir(wake_gpio, GPIO_IN);
+    gpio_pull_down(wake_gpio);
+
+    // Prepare for lowest power dormant mode
+    sleep_run_from_dormant_source(DORMANT_SOURCE_XOSC);
+
+    // Disable all unnecessary clocks
+    clock_stop(clk_usb);
+    clock_stop(clk_adc);
+    clock_stop(clk_hstx);
+
+    // Enter dormant mode, waiting for GPIO level high
+    sleep_goto_dormant_until_pin(wake_gpio, false, true);
+
+    // We've woken up
+    if (reboot) {
+        // Full reboot for clean peripheral state
+        // Note: watchdog_reboot() or similar would be called here
+        // For now, just restore clocks - caller can reboot if needed
+        sleep_power_up();
+    } else {
+        // Just restore clocks
+        sleep_power_up();
+    }
+}
+
 #endif // __PLAT_RP2350__

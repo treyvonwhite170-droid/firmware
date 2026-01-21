@@ -74,9 +74,20 @@
 #define HAS_AON_TIMER 1             // RP2350 has AON (Always-On) Timer
 #define HAS_LPOSC 1                 // RP2350 has Low-Power Oscillator
 
+// USB VBUS detection for wake-from-shutdown
+// GPIO24 is the standard VBUS sense pin on RP2350 boards (Pico 2 compatible)
+// This pin goes HIGH when USB power (5V) is connected via USB-C or 5V pin
+#define VBUS_SENSE_PIN 24           // GPIO24 = VBUS sense (high when USB connected)
+
 // Sleep mode configuration
 // GPIO pins that can wake from dormant mode (max 4 on RP2350)
 #define WAKE_GPIO_PIN BUTTON_PIN    // Wake on button press
+
+// Shutdown/wake configuration
+// The board can be shut down and will wake when:
+// 1. USB-C is plugged in (VBUS goes high)
+// 2. 5V is applied to the 5V input pin
+// Power consumption in shutdown: ~0.6-1.2mA
 
 // ============================================================
 // LoRa Radio Configuration (if using external module)
@@ -128,9 +139,16 @@
 // D9  = GPIO 4  (MISO)
 // D10 = GPIO 3  (MOSI)
 //
-// Internal:
+// Internal (directly accessible in firmware):
 // GPIO 22 = WS2812 RGB LED Data
-// GPIO 23 = RGB LED Power Enable
+// GPIO 23 = RGB LED Power Enable (active high)
+// GPIO 24 = VBUS Sense (high when USB power connected)
 // GPIO 25 = User LED (directly, active low on some boards)
+//
+// Power Management:
+// - cpuShutdownDefault() - Shutdown until USB connected
+// - cpuShutdown(gpio)    - Shutdown until specific GPIO
+// - cpuDeepSleep(ms)     - Deep sleep for duration
+// - cpuLightSleep(ms)    - Light sleep for duration
 
 #endif // _VARIANT_XIAO_RP2350_H_

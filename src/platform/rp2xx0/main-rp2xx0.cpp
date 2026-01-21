@@ -145,6 +145,91 @@ void cpuDormantUntilPin(uint gpio_pin, bool edge, bool high)
     sleep_power_up();
 }
 
+/**
+ * @brief Shutdown the board until USB power is connected
+ *
+ * This function puts the RP2350 into the lowest possible power state.
+ * The board will wake and reboot when:
+ * - USB-C is plugged in (VBUS detected)
+ * - 5V is applied to the 5V input pin
+ *
+ * The VBUS sense pin (default GPIO24) monitors USB power status.
+ * When VBUS goes high, the board wakes from dormant mode and reboots
+ * to ensure all peripherals are properly initialized.
+ *
+ * @param vbus_gpio GPIO pin for VBUS detection (default: VBUS_SENSE_PIN or 24)
+ * @return true if shutdown was entered, false if USB already connected
+ *
+ * Power consumption in shutdown: ~0.6-1.2mA (varies by board)
+ *
+ * Usage:
+ *   if (!cpuShutdown()) {
+ *       // USB was already connected, handle accordingly
+ *   }
+ *   // Will only reach here if wake happened and reboot is disabled
+ */
+bool cpuShutdown(uint vbus_gpio)
+{
+    // Log shutdown intent
+    LOG_INFO("Entering shutdown mode, waiting for USB power...");
+    uart_default_tx_wait_blocking();
+
+    // Try to enter shutdown mode
+    bool entered = sleep_shutdown_until_usb(vbus_gpio);
+
+    if (!entered) {
+        // USB was already connected
+        LOG_INFO("USB already connected, cannot shutdown");
+        return false;
+    }
+
+    // We've woken up from shutdown - USB is now connected
+    LOG_INFO("Woke from shutdown, USB power detected. Rebooting...");
+    uart_default_tx_wait_blocking();
+
+    // Reboot for clean peripheral initialization
+    rp2040.reboot();
+
+    // Should not reach here
+    return true;
+}
+
+/**
+ * @brief Shutdown with default VBUS pin
+ *
+ * Uses the board-defined VBUS_SENSE_PIN or falls back to GPIO24
+ * (standard Pico 2 VBUS sense pin).
+ */
+bool cpuShutdownDefault(void)
+{
+#ifdef VBUS_SENSE_PIN
+    return cpuShutdown(VBUS_SENSE_PIN);
+#else
+    return cpuShutdown(24); // Default Pico 2 VBUS sense
+#endif
+}
+
+/**
+ * @brief Shutdown until a specific GPIO goes high
+ *
+ * More flexible version that can wake on any GPIO signal.
+ * Useful for custom wake sources like external buttons or signals.
+ *
+ * @param wake_gpio GPIO pin to monitor for wake
+ */
+void cpuShutdownUntilGpio(uint wake_gpio)
+{
+    LOG_INFO("Entering shutdown mode, waiting for GPIO%d...", wake_gpio);
+    uart_default_tx_wait_blocking();
+
+    sleep_shutdown_until_gpio(wake_gpio, false);
+
+    LOG_INFO("Woke from shutdown. Rebooting...");
+    uart_default_tx_wait_blocking();
+
+    rp2040.reboot();
+}
+
 #endif
 
 void setBluetoothEnable(bool enable)

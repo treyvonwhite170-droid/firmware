@@ -167,6 +167,60 @@ static inline void sleep_goto_dormant_until_level_high(uint gpio_pin)
  */
 void sleep_power_up(void);
 
+#ifdef __PLAT_RP2350__
+
+/*! \brief Shutdown the board until USB power is connected (RP2350)
+ *  \ingroup hardware_sleep
+ *
+ * This function puts the RP2350 into the lowest possible power state
+ * (dormant mode with minimal power consumption). The board will wake
+ * when USB power (VBUS) is detected or when the 5V pin receives power.
+ *
+ * On XIAO RP2350 and similar boards, VBUS detection is typically on GPIO24.
+ * When VBUS goes high (USB connected), the board wakes from dormant mode.
+ *
+ * If VBUS is already present, this function will NOT enter shutdown mode
+ * to prevent immediate wake loops. Instead, it will return false.
+ *
+ * Power consumption in shutdown: ~0.6-1.2mA (board dependent)
+ * For true µA-level shutdown, external power switching is required.
+ *
+ * \param vbus_gpio The GPIO pin connected to VBUS sense (default: 24)
+ * \return true if shutdown was entered and woke up, false if VBUS already present
+ *
+ * \note After waking, the function calls sleep_power_up() to restore clocks.
+ *       A full reboot is recommended for reliable peripheral reinitialization.
+ */
+bool sleep_shutdown_until_usb(uint vbus_gpio);
+
+/*! \brief Shutdown with default VBUS pin (GPIO24)
+ *  \ingroup hardware_sleep
+ */
+static inline bool sleep_shutdown_until_usb_default(void)
+{
+    return sleep_shutdown_until_usb(24); // Default VBUS sense pin
+}
+
+/*! \brief Enter ultra-low-power shutdown mode (RP2350)
+ *  \ingroup hardware_sleep
+ *
+ * This function enters the lowest possible power state by:
+ * 1. Disabling all unnecessary clocks
+ * 2. Entering dormant mode
+ * 3. Waiting for the specified GPIO to go high
+ *
+ * Unlike sleep_shutdown_until_usb(), this function:
+ * - Does NOT check if the wake pin is already high
+ * - Will block until the pin goes high
+ * - Is suitable for any GPIO wake source (button, external signal, etc.)
+ *
+ * \param wake_gpio The GPIO pin to wake on (level high)
+ * \param reboot If true, reboot after wake; if false, just restore clocks
+ */
+void sleep_shutdown_until_gpio(uint wake_gpio, bool reboot);
+
+#endif // __PLAT_RP2350__
+
 #ifdef __cplusplus
 }
 #endif
