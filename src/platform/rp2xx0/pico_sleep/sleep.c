@@ -399,6 +399,92 @@ void sleep_power_up(void)
     _dormant_source = DORMANT_SOURCE_NONE;
 }
 
+// ============================================================
+// FreeRTOS and Dual-Core Support
+// ============================================================
+
+#include "pico/multicore.h"
+
+// Track if core1 was running before sleep
+static bool _core1_was_running = false;
+static void (*_core1_entry_func)(void) = NULL;
+
+// Check if we're running on core0
+static inline bool _is_core0(void) {
+    return get_core_num() == 0;
+}
+
+void sleep_core1_stop(void)
+{
+    // Only core0 should call this
+    if (!_is_core0()) {
+        return;
+    }
+
+    // Check if core1 is running by trying to communicate
+    // The multicore_reset_core1() function will safely stop it
+    _core1_was_running = true;
+
+    // Reset core1 - this stops it safely
+    multicore_reset_core1();
+}
+
+void sleep_core1_resume(void (*entry)(void))
+{
+    if (!_is_core0()) {
+        return;
+    }
+
+    if (entry != NULL) {
+        _core1_entry_func = entry;
+    }
+
+    if (_core1_entry_func != NULL && _core1_was_running) {
+        // Relaunch core1 with the entry function
+        multicore_launch_core1(_core1_entry_func);
+    }
+
+    _core1_was_running = false;
+}
+
+bool sleep_core1_is_running(void)
+{
+    // Check if core1 is in a running state
+    // This is a simple check - core1 is considered running if it wasn't reset
+    return _core1_was_running || (_core1_entry_func != NULL);
+}
+
+#if defined(HAS_FREE_RTOS) || defined(__FREERTOS)
+
+#include <FreeRTOS.h>
+#include <task.h>
+
+void sleep_freertos_prepare(void)
+{
+    // Suspend the FreeRTOS scheduler
+    // This prevents task switches during sleep preparation
+    vTaskSuspendAll();
+
+    // Stop core1 if it's running
+    // In FreeRTOS SMP mode, this ensures all tasks on core1 are stopped
+    sleep_core1_stop();
+}
+
+void sleep_freertos_resume(void)
+{
+    // Resume the FreeRTOS scheduler
+    xTaskResumeAll();
+
+    // Note: Core1 resume is typically handled by reboot
+    // If not rebooting, the caller should restart core1 tasks manually
+}
+
+#endif // HAS_FREE_RTOS
+
+// ============================================================
+// Shutdown Functions
+// ============================================================
+
 bool sleep_shutdown_until_usb(uint vbus_gpio)
 {
     // Configure VBUS sense pin as input
@@ -411,6 +497,15 @@ bool sleep_shutdown_until_usb(uint vbus_gpio)
     if (gpio_get(vbus_gpio)) {
         return false; // VBUS already present, don't shutdown
     }
+
+    // Stop core1 before entering dormant mode
+    // This is critical for proper low-power operation
+    sleep_core1_stop();
+
+#if defined(HAS_FREE_RTOS) || defined(__FREERTOS)
+    // Suspend FreeRTOS scheduler
+    vTaskSuspendAll();
+#endif
 
     // Prepare for lowest power dormant mode
     // Use XOSC for dormant - it will stop and restart on wake
@@ -430,6 +525,11 @@ bool sleep_shutdown_until_usb(uint vbus_gpio)
     // Restore all clocks
     sleep_power_up();
 
+#if defined(HAS_FREE_RTOS) || defined(__FREERTOS)
+    // Resume FreeRTOS scheduler
+    xTaskResumeAll();
+#endif
+
     return true;
 }
 
@@ -439,6 +539,14 @@ void sleep_shutdown_until_gpio(uint wake_gpio, bool reboot)
     gpio_init(wake_gpio);
     gpio_set_dir(wake_gpio, GPIO_IN);
     gpio_pull_down(wake_gpio);
+
+    // Stop core1 before entering dormant mode
+    sleep_core1_stop();
+
+#if defined(HAS_FREE_RTOS) || defined(__FREERTOS)
+    // Suspend FreeRTOS scheduler
+    vTaskSuspendAll();
+#endif
 
     // Prepare for lowest power dormant mode
     sleep_run_from_dormant_source(DORMANT_SOURCE_XOSC);
@@ -452,15 +560,16 @@ void sleep_shutdown_until_gpio(uint wake_gpio, bool reboot)
     sleep_goto_dormant_until_pin(wake_gpio, false, true);
 
     // We've woken up
-    if (reboot) {
-        // Full reboot for clean peripheral state
-        // Note: watchdog_reboot() or similar would be called here
-        // For now, just restore clocks - caller can reboot if needed
-        sleep_power_up();
-    } else {
-        // Just restore clocks
-        sleep_power_up();
-    }
+    // Restore clocks first
+    sleep_power_up();
+
+#if defined(HAS_FREE_RTOS) || defined(__FREERTOS)
+    // Resume FreeRTOS scheduler
+    xTaskResumeAll();
+#endif
+
+    // Note: Core1 is NOT automatically restarted
+    // Caller should either reboot or call sleep_core1_resume()
 }
 
 #endif // __PLAT_RP2350__

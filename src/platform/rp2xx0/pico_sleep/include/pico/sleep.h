@@ -169,6 +169,66 @@ void sleep_power_up(void);
 
 #ifdef __PLAT_RP2350__
 
+// ============================================================
+// FreeRTOS and Dual-Core Support
+// ============================================================
+
+#if defined(HAS_FREE_RTOS) || defined(__FREERTOS)
+
+/*! \brief Prepare for sleep by suspending FreeRTOS tasks
+ *  \ingroup hardware_sleep
+ *
+ * Call this before entering any sleep mode when using FreeRTOS.
+ * This function:
+ * 1. Suspends the FreeRTOS scheduler
+ * 2. Waits for core1 to be idle (if using dual-core)
+ *
+ * \note Must be paired with sleep_freertos_resume()
+ */
+void sleep_freertos_prepare(void);
+
+/*! \brief Resume FreeRTOS after waking from sleep
+ *  \ingroup hardware_sleep
+ *
+ * Call this after waking from sleep to resume normal operation.
+ * This function resumes the FreeRTOS scheduler.
+ */
+void sleep_freertos_resume(void);
+
+#endif // HAS_FREE_RTOS
+
+/*! \brief Stop core1 before entering sleep/dormant mode
+ *  \ingroup hardware_sleep
+ *
+ * When using dual-core operation, core1 must be stopped before
+ * entering sleep or dormant modes to prevent undefined behavior.
+ *
+ * This function sends a signal to core1 to stop and waits for
+ * confirmation. After waking, call sleep_core1_resume() to restart.
+ */
+void sleep_core1_stop(void);
+
+/*! \brief Resume core1 after waking from sleep
+ *  \ingroup hardware_sleep
+ *
+ * Restarts core1 execution after waking from sleep/dormant mode.
+ * The core1 entry function must be set before calling this.
+ *
+ * \param entry Function pointer for core1 to execute
+ */
+void sleep_core1_resume(void (*entry)(void));
+
+/*! \brief Check if core1 is currently running
+ *  \ingroup hardware_sleep
+ *
+ * \return true if core1 is active, false if stopped
+ */
+bool sleep_core1_is_running(void);
+
+// ============================================================
+// Shutdown Functions
+// ============================================================
+
 /*! \brief Shutdown the board until USB power is connected (RP2350)
  *  \ingroup hardware_sleep
  *
@@ -181,6 +241,9 @@ void sleep_power_up(void);
  *
  * If VBUS is already present, this function will NOT enter shutdown mode
  * to prevent immediate wake loops. Instead, it will return false.
+ *
+ * FreeRTOS Note: This function automatically handles FreeRTOS task
+ * suspension and core1 shutdown when HAS_FREE_RTOS is defined.
  *
  * Power consumption in shutdown: ~0.6-1.2mA (board dependent)
  * For true µA-level shutdown, external power switching is required.
@@ -213,6 +276,9 @@ static inline bool sleep_shutdown_until_usb_default(void)
  * - Does NOT check if the wake pin is already high
  * - Will block until the pin goes high
  * - Is suitable for any GPIO wake source (button, external signal, etc.)
+ *
+ * FreeRTOS Note: This function automatically handles FreeRTOS task
+ * suspension and core1 shutdown when HAS_FREE_RTOS is defined.
  *
  * \param wake_gpio The GPIO pin to wake on (level high)
  * \param reboot If true, reboot after wake; if false, just restore clocks

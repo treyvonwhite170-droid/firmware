@@ -230,7 +230,168 @@ void cpuShutdownUntilGpio(uint wake_gpio)
     rp2040.reboot();
 }
 
+// ============================================================
+// Core1 Compute Task Utilities
+// ============================================================
+// These functions help run compute-heavy tasks on core1 while
+// keeping core0 free for I/O, networking, and other tasks.
+//
+// Usage with FreeRTOS SMP:
+//   Tasks are automatically distributed across cores by the scheduler.
+//   Use xTaskCreatePinnedToCore() to pin compute tasks to core1.
+//
+// Usage without FreeRTOS (bare metal multicore):
+//   Define setup1() and loop1() in your sketch for core1 code.
+//   Use rp2040.fifo for inter-core communication.
+
+#include "pico/multicore.h"
+
+// Core1 task function pointer (for bare metal mode)
+static void (*_core1_task_func)(void) = NULL;
+static volatile bool _core1_task_running = false;
+
+/**
+ * @brief Internal core1 entry wrapper
+ */
+static void _core1_task_wrapper(void)
+{
+    _core1_task_running = true;
+    if (_core1_task_func != NULL) {
+        _core1_task_func();
+    }
+    _core1_task_running = false;
+
+    // Core1 will idle here until reset
+    while (1) {
+        __wfi(); // Wait for interrupt (low power idle)
+    }
+}
+
+/**
+ * @brief Launch a compute task on core1
+ *
+ * This function starts a compute-heavy task on core1, leaving core0
+ * free for I/O operations. The task runs until completion or until
+ * stopCore1Task() is called.
+ *
+ * @param task_func Function to run on core1 (should be long-running)
+ * @return true if task was launched, false if core1 is already busy
+ *
+ * Example:
+ *   void heavyComputation() {
+ *       while (!computationDone) {
+ *           // Do heavy math, signal processing, etc.
+ *           processData();
+ *       }
+ *   }
+ *   launchCore1Task(heavyComputation);
+ */
+bool launchCore1Task(void (*task_func)(void))
+{
+    if (_core1_task_running) {
+        return false; // Core1 already busy
+    }
+
+    _core1_task_func = task_func;
+
+    // Launch core1 with our wrapper
+    multicore_launch_core1(_core1_task_wrapper);
+
+    return true;
+}
+
+/**
+ * @brief Stop the current core1 task
+ *
+ * Resets core1 to stop any running task. After calling this,
+ * a new task can be launched with launchCore1Task().
+ */
+void stopCore1Task(void)
+{
+    if (_core1_task_running) {
+        multicore_reset_core1();
+        _core1_task_running = false;
+        _core1_task_func = NULL;
+    }
+}
+
+/**
+ * @brief Check if core1 is running a task
+ *
+ * @return true if a task is currently running on core1
+ */
+bool isCore1TaskRunning(void)
+{
+    return _core1_task_running;
+}
+
+/**
+ * @brief Get the core number we're currently running on
+ *
+ * @return 0 for core0, 1 for core1
+ */
+uint8_t getCurrentCore(void)
+{
+    return get_core_num();
+}
+
+#if defined(HAS_FREE_RTOS) || defined(__FREERTOS)
+#include <FreeRTOS.h>
+#include <task.h>
+
+/**
+ * @brief Create a FreeRTOS task pinned to core1
+ *
+ * This is a convenience wrapper for xTaskCreatePinnedToCore that
+ * always pins the task to core1 for compute-heavy operations.
+ *
+ * @param taskFunc Task function
+ * @param name Task name (for debugging)
+ * @param stackSize Stack size in words
+ * @param params Parameters to pass to task
+ * @param priority Task priority (0-7)
+ * @param taskHandle Output handle (can be NULL)
+ * @return pdPASS on success, errCOULD_NOT_ALLOCATE_REQUIRED_MEMORY on failure
+ *
+ * Example:
+ *   void computeTask(void *params) {
+ *       while (1) {
+ *           processData();
+ *           vTaskDelay(pdMS_TO_TICKS(10));
+ *       }
+ *   }
+ *   createCore1Task(computeTask, "compute", 4096, NULL, 3, NULL);
+ */
+BaseType_t createCore1Task(
+    TaskFunction_t taskFunc,
+    const char *name,
+    uint32_t stackSize,
+    void *params,
+    UBaseType_t priority,
+    TaskHandle_t *taskHandle)
+{
+    // In FreeRTOS SMP, use core affinity to pin to core1
+    // Note: This requires FreeRTOS SMP configuration
+#if configUSE_CORE_AFFINITY
+    TaskHandle_t handle;
+    BaseType_t result = xTaskCreate(taskFunc, name, stackSize, params, priority, &handle);
+    if (result == pdPASS && handle != NULL) {
+        // Set core affinity to core1 only (bitmask: 0b10 = core1)
+        vTaskCoreAffinitySet(handle, (1 << 1));
+        if (taskHandle != NULL) {
+            *taskHandle = handle;
+        }
+    }
+    return result;
+#else
+    // Fallback: just create the task normally
+    return xTaskCreate(taskFunc, name, stackSize, params, priority, taskHandle);
 #endif
+}
+
+#endif // HAS_FREE_RTOS
+
+#endif // __PLAT_RP2350__
 
 void setBluetoothEnable(bool enable)
 {

@@ -150,5 +150,38 @@
 // - cpuShutdown(gpio)    - Shutdown until specific GPIO
 // - cpuDeepSleep(ms)     - Deep sleep for duration
 // - cpuLightSleep(ms)    - Light sleep for duration
+//
+// Dual-Core (FreeRTOS):
+// - launchCore1Task(func) - Run compute task on core1
+// - stopCore1Task()       - Stop core1 task
+// - isCore1TaskRunning()  - Check core1 status
+// - createCore1Task(...)  - Create FreeRTOS task pinned to core1
+
+// ============================================================
+// FreeRTOS and Dual-Core Configuration
+// ============================================================
+// The XIAO RP2350 has dual Cortex-M33 cores (or RISC-V Hazard3).
+// FreeRTOS SMP is enabled by default for this board.
+//
+// Core usage recommendations:
+// - Core0: Main loop, I/O, networking, UI
+// - Core1: Compute-heavy tasks (signal processing, crypto, etc.)
+//
+// Note: FreeRTOS on RISC-V cores is experimental (use ARM mode for production)
+
+// Enable FreeRTOS SMP (dual-core scheduler)
+#ifndef configNUMBER_OF_CORES
+#define configNUMBER_OF_CORES 2
+#endif
+
+// Stack sizes for dual-core operation
+// When using setup1/loop1, each core gets 4KB stack
+// Set this to true for separate 8KB stacks per core
+// #define core1_separate_stack true
+
+// Core affinity for compute tasks
+// Use createCore1Task() to pin tasks to core1
+#define COMPUTE_CORE 1  // Core1 for compute-heavy tasks
+#define IO_CORE 0       // Core0 for I/O operations
 
 #endif // _VARIANT_XIAO_RP2350_H_
