@@ -201,6 +201,7 @@ static bool test_clock_restoration(void) {
     uint32_t clk_sys_before = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_SYS);
 
     // Do a quick sleep
+    test_awake = false;  // Reset before sleep
     sleep_run_from_xosc();
     sleep_goto_sleep_for_ms(100, test_wakeup_callback);
     while (!test_awake) tight_loop_contents();

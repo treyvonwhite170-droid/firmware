@@ -26,7 +26,8 @@
 #include "hardware/powman.h"
 #include "hardware/ticks.h"
 #include "hardware/structs/powman.h"
-#include "hardware/rosc.h"  // For rosc_set_dormant() in ROSC dormant mode
+#include "hardware/rosc.h"    // For rosc_set_dormant() in ROSC dormant mode
+#include "hardware/watchdog.h" // For watchdog_reboot() in shutdown functions
 #endif
 
 // when using old SDK this macro is not defined
@@ -260,15 +261,6 @@ void sleep_run_from_dormant_source(dormant_source_t dormant_source)
     if (dormant_source == DORMANT_SOURCE_XOSC || dormant_source == DORMANT_SOURCE_LPOSC) {
         // ROSC can be disabled when using XOSC
         // But keep it running for now as some peripherals might need it
-    }
-}
-
-// Internal AON timer alarm handler
-static void _aon_timer_alarm_handler(void)
-{
-    _rp2350_awake = true;
-    if (_rp2350_wakeup_callback) {
-        _rp2350_wakeup_callback();
     }
 }
 
@@ -586,6 +578,13 @@ void sleep_shutdown_until_gpio(uint wake_gpio, bool reboot)
 
     // Note: Core1 is NOT automatically restarted
     // Caller should either reboot or call sleep_core1_resume()
+
+    // If reboot requested, use watchdog to trigger a reset
+    // This ensures a clean restart of all peripherals
+    if (reboot) {
+        watchdog_reboot(0, 0, 0);  // Immediate reboot
+        while (1) tight_loop_contents();  // Wait for reset
+    }
 }
 
 #endif // __PLAT_RP2350__
