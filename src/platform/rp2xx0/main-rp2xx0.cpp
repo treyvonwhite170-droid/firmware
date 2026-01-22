@@ -288,6 +288,12 @@ static void _core1_task_wrapper(void)
  */
 bool launchCore1Task(void (*task_func)(void))
 {
+    // Must be called from core0
+    // See: https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_multicore/include/pico/multicore.h
+    if (get_core_num() != 0) {
+        return false; // Can only launch from core0
+    }
+
     if (_core1_task_running) {
         return false; // Core1 already busy
     }
@@ -296,6 +302,10 @@ bool launchCore1Task(void (*task_func)(void))
 
     // Launch core1 with our wrapper
     multicore_launch_core1(_core1_task_wrapper);
+
+    // Notify sleep system that core1 is now active
+    // This allows proper shutdown/resume handling
+    sleep_core1_set_active(true, _core1_task_wrapper);
 
     return true;
 }
@@ -308,10 +318,23 @@ bool launchCore1Task(void (*task_func)(void))
  */
 void stopCore1Task(void)
 {
+    // Must be called from core0
+    if (get_core_num() != 0) {
+        return;
+    }
+
     if (_core1_task_running) {
         multicore_reset_core1();
+
+        // Small delay required after reset before relaunching
+        // See: https://github.com/raspberrypi/pico-sdk/issues/1977
+        sleep_ms(10);
+
         _core1_task_running = false;
         _core1_task_func = NULL;
+
+        // Notify sleep system that core1 is now stopped
+        sleep_core1_set_active(false, NULL);
     }
 }
 
@@ -389,7 +412,7 @@ BaseType_t createCore1Task(
 #endif
 }
 
-#endif // HAS_FREE_RTOS
+#endif // HAS_FREE_RTOS || __FREERTOS
 
 #endif // __PLAT_RP2350__
 

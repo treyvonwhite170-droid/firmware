@@ -195,7 +195,7 @@ void sleep_freertos_prepare(void);
  */
 void sleep_freertos_resume(void);
 
-#endif // HAS_FREE_RTOS
+#endif // HAS_FREE_RTOS || __FREERTOS
 
 /*! \brief Stop core1 before entering sleep/dormant mode
  *  \ingroup hardware_sleep
@@ -224,6 +224,17 @@ void sleep_core1_resume(void (*entry)(void));
  * \return true if core1 is active, false if stopped
  */
 bool sleep_core1_is_running(void);
+
+/*! \brief Mark core1 as active/inactive
+ *  \ingroup hardware_sleep
+ *
+ * Call this after launching core1 externally to allow the sleep system
+ * to properly track core1 status for shutdown/resume operations.
+ *
+ * \param active true if core1 was just launched, false if stopped
+ * \param entry The entry function core1 is running (for resume after sleep)
+ */
+void sleep_core1_set_active(bool active, void (*entry)(void));
 
 // ============================================================
 // Shutdown Functions

@@ -26,6 +26,7 @@
 #include "hardware/powman.h"
 #include "hardware/ticks.h"
 #include "hardware/structs/powman.h"
+#include "hardware/rosc.h"  // For rosc_set_dormant() in ROSC dormant mode
 #endif
 
 // when using old SDK this macro is not defined
@@ -370,13 +371,14 @@ void sleep_goto_dormant_until_pin(uint gpio_pin, bool edge, bool high)
     // Note: RP2350 supports max 4 GPIO wakeup sources via POWMAN
     // For simplicity, use the standard dormant wake mechanism here
 
-    // Enter dormant mode
-    if (_dormant_source == DORMANT_SOURCE_XOSC || _dormant_source == DORMANT_SOURCE_LPOSC) {
-        xosc_dormant();
+    // Enter dormant mode based on configured source
+    if (_dormant_source == DORMANT_SOURCE_ROSC) {
+        // Use ROSC dormant mode
+        rosc_set_dormant();
     } else {
-        // For ROSC, we need to use rosc_dormant
-        // Note: ROSC dormant is less common on RP2350
-        xosc_dormant(); // Default to XOSC
+        // XOSC or LPOSC: use XOSC dormant
+        // LPOSC continues running during XOSC dormant for POWMAN timer
+        xosc_dormant();
     }
 
     // Clear the irq so we can go back to dormant mode again if we want
@@ -406,7 +408,9 @@ void sleep_power_up(void)
 #include "pico/multicore.h"
 
 // Track if core1 was running before sleep
-static bool _core1_was_running = false;
+// Use volatile for multicore-safe access
+static volatile bool _core1_is_active = false;
+static volatile bool _core1_was_stopped_for_sleep = false;
 static void (*_core1_entry_func)(void) = NULL;
 
 // Check if we're running on core0
@@ -421,12 +425,21 @@ void sleep_core1_stop(void)
         return;
     }
 
-    // Check if core1 is running by trying to communicate
-    // The multicore_reset_core1() function will safely stop it
-    _core1_was_running = true;
+    // Only stop if core1 is actually active
+    if (!_core1_is_active) {
+        return;
+    }
+
+    // Mark that we stopped core1 for sleep (to know we should resume it)
+    _core1_was_stopped_for_sleep = true;
+    _core1_is_active = false;
 
     // Reset core1 - this stops it safely
     multicore_reset_core1();
+
+    // Small delay required after reset before any relaunch
+    // See: https://github.com/raspberrypi/pico-sdk/issues/1977
+    sleep_ms(10);
 }
 
 void sleep_core1_resume(void (*entry)(void))
@@ -439,19 +452,31 @@ void sleep_core1_resume(void (*entry)(void))
         _core1_entry_func = entry;
     }
 
-    if (_core1_entry_func != NULL && _core1_was_running) {
+    // Only resume if we stopped it for sleep and have an entry function
+    if (_core1_entry_func != NULL && _core1_was_stopped_for_sleep) {
         // Relaunch core1 with the entry function
         multicore_launch_core1(_core1_entry_func);
+        _core1_is_active = true;
     }
 
-    _core1_was_running = false;
+    _core1_was_stopped_for_sleep = false;
 }
 
 bool sleep_core1_is_running(void)
 {
-    // Check if core1 is in a running state
-    // This is a simple check - core1 is considered running if it wasn't reset
-    return _core1_was_running || (_core1_entry_func != NULL);
+    // Return whether core1 is currently active
+    // This flag is set when core1 is launched and cleared when stopped
+    return _core1_is_active;
+}
+
+void sleep_core1_set_active(bool active, void (*entry)(void))
+{
+    // Called to mark core1 as active after launching it externally
+    // This allows the sleep system to properly track and stop/resume core1
+    _core1_is_active = active;
+    if (entry != NULL) {
+        _core1_entry_func = entry;
+    }
 }
 
 #if defined(HAS_FREE_RTOS) || defined(__FREERTOS)
@@ -479,7 +504,7 @@ void sleep_freertos_resume(void)
     // If not rebooting, the caller should restart core1 tasks manually
 }
 
-#endif // HAS_FREE_RTOS
+#endif // HAS_FREE_RTOS || __FREERTOS
 
 // ============================================================
 // Shutdown Functions
@@ -509,13 +534,8 @@ bool sleep_shutdown_until_usb(uint vbus_gpio)
 
     // Prepare for lowest power dormant mode
     // Use XOSC for dormant - it will stop and restart on wake
+    // Note: sleep_run_from_dormant_source() already stops clk_usb, clk_adc, clk_hstx
     sleep_run_from_dormant_source(DORMANT_SOURCE_XOSC);
-
-    // Disable all unnecessary peripherals for minimum power
-    // Stop clocks that aren't needed
-    clock_stop(clk_usb);
-    clock_stop(clk_adc);
-    clock_stop(clk_hstx);
 
     // Enter dormant mode, waiting for VBUS (level high)
     // When USB is plugged in, VBUS goes high and we wake
@@ -549,12 +569,8 @@ void sleep_shutdown_until_gpio(uint wake_gpio, bool reboot)
 #endif
 
     // Prepare for lowest power dormant mode
+    // Note: sleep_run_from_dormant_source() already stops clk_usb, clk_adc, clk_hstx
     sleep_run_from_dormant_source(DORMANT_SOURCE_XOSC);
-
-    // Disable all unnecessary clocks
-    clock_stop(clk_usb);
-    clock_stop(clk_adc);
-    clock_stop(clk_hstx);
 
     // Enter dormant mode, waiting for GPIO level high
     sleep_goto_dormant_until_pin(wake_gpio, false, true);
