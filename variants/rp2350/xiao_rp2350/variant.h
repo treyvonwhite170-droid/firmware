@@ -78,6 +78,7 @@
 // GPIO24 is the standard VBUS sense pin on RP2350 boards (Pico 2 compatible)
 // This pin goes HIGH when USB power (5V) is connected via USB-C or 5V pin
 #define VBUS_SENSE_PIN 24           // GPIO24 = VBUS sense (high when USB connected)
+#define EXT_PWR_DETECT VBUS_SENSE_PIN  // Alias for PowerFSM integration
 
 // Sleep mode configuration
 // GPIO pins that can wake from dormant mode (max 4 on RP2350)

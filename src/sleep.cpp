@@ -580,3 +580,96 @@ void enableLoraInterrupt()
 #endif
 }
 #endif
+
+// ============================================================
+// RP2040/RP2350 Light Sleep Implementation
+// ============================================================
+#ifdef ARCH_RP2040
+#include <pico/sleep.h>
+#include <pico/stdlib.h>
+
+rp2_sleep_wakeup_cause_t rp2WakeCause = RP2_SLEEP_WAKEUP_UNDEFINED;
+
+// Internal callback for light sleep wake tracking
+static volatile bool _rp2_light_sleep_awake = false;
+static void _rp2_light_sleep_callback(void)
+{
+    _rp2_light_sleep_awake = true;
+}
+
+/**
+ * @brief Enter light sleep mode for the specified duration
+ *
+ * This function puts the RP2040/RP2350 into a low-power sleep mode while
+ * maintaining the ability to wake on timer or GPIO interrupt.
+ *
+ * Power consumption in light sleep: ~2-3mA (varies by configuration)
+ *
+ * @param sleepMsec Duration to sleep in milliseconds
+ * @return Wake cause (timer, GPIO, etc.)
+ */
+rp2_sleep_wakeup_cause_t doLightSleep(uint64_t sleepMsec)
+{
+    _rp2_light_sleep_awake = false;
+    rp2WakeCause = RP2_SLEEP_WAKEUP_UNDEFINED;
+
+    // Disable bluetooth before sleeping
+    setBluetoothEnable(false);
+
+    // Flush serial before sleep
+    console->flush();
+
+#ifdef __PLAT_RP2350__
+    // RP2350: Use POWMAN-based sleep with AON timer
+    sleep_run_from_xosc();
+    sleep_goto_sleep_for_ms((uint32_t)sleepMsec, _rp2_light_sleep_callback);
+
+    // Wait for wake (should be immediate after sleep returns)
+    while (!_rp2_light_sleep_awake) {
+        tight_loop_contents();
+    }
+
+    // Restore clocks
+    sleep_power_up();
+
+    // Determine wake cause
+    // For timer-based sleep, it's always timer wake
+    rp2WakeCause = RP2_SLEEP_WAKEUP_TIMER;
+
+    // Check if a button was pressed during sleep
+#ifdef BUTTON_PIN
+    if (!digitalRead(config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN)) {
+        rp2WakeCause = RP2_SLEEP_WAKEUP_GPIO;
+    }
+#endif
+
+#else
+    // RP2040: Use RTC-based sleep
+    sleep_run_from_dormant_source(DORMANT_SOURCE_ROSC);
+
+    // Convert to datetime for RTC
+    time_t seconds = (time_t)(sleepMsec / 1000);
+    datetime_t t_alarm;
+    struct tm *tm_info = gmtime(&seconds);
+    t_alarm.year = tm_info->tm_year;
+    t_alarm.month = tm_info->tm_mon + 1;
+    t_alarm.day = tm_info->tm_mday;
+    t_alarm.dotw = tm_info->tm_wday;
+    t_alarm.hour = tm_info->tm_hour;
+    t_alarm.min = tm_info->tm_min;
+    t_alarm.sec = tm_info->tm_sec;
+
+    sleep_goto_sleep_until(&t_alarm, _rp2_light_sleep_callback);
+
+    while (!_rp2_light_sleep_awake) {
+        tight_loop_contents();
+    }
+
+    sleep_power_up();
+    rp2WakeCause = RP2_SLEEP_WAKEUP_TIMER;
+#endif
+
+    LOG_INFO("Exit light sleep, cause: %d", rp2WakeCause);
+    return rp2WakeCause;
+}
+#endif // ARCH_RP2040

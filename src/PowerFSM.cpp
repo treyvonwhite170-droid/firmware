@@ -93,7 +93,7 @@ static void lsIdle()
 {
     // LOG_INFO("lsIdle begin ls_secs=%u", getPref_ls_secs());
 
-#ifdef ARCH_ESP32
+#if defined(ARCH_ESP32) || defined(ARCH_RP2040)
 
     // Do we have more sleeping to do?
     if (secsSlept < config.power.ls_secs) {
@@ -104,6 +104,8 @@ static void lsIdle()
 
             powerMon->setState(meshtastic_PowerMon_State_CPU_LightSleep);
             ledBlink.set(false); // Never leave led on while in light sleep
+
+#ifdef ARCH_ESP32
             esp_sleep_source_t wakeCause2 = doLightSleep(sleepTime * 1000LL);
             powerMon->clearState(meshtastic_PowerMon_State_CPU_LightSleep);
 
@@ -140,6 +142,40 @@ static void lsIdle()
                 }
                 break;
             }
+#elif defined(ARCH_RP2040)
+            // RP2040/RP2350 light sleep
+            rp2_sleep_wakeup_cause_t wakeCause2 = doLightSleep(sleepTime * 1000LL);
+            powerMon->clearState(meshtastic_PowerMon_State_CPU_LightSleep);
+
+            switch (wakeCause2) {
+            case RP2_SLEEP_WAKEUP_TIMER:
+                // Normal case: timer expired, we should just go back to sleep ASAP
+                ledBlink.set(true);             // briefly turn on led
+                doLightSleep(100);              // leave led on for 100ms
+                secsSlept += sleepTime;
+                break;
+
+            case RP2_SLEEP_WAKEUP_GPIO:
+                // Button press or other GPIO interrupt
+#ifdef BUTTON_PIN
+                {
+                    bool pressed = !digitalRead(config.device.button_gpio ? config.device.button_gpio : BUTTON_PIN);
+                    if (pressed) {
+                        powerFSM.trigger(EVENT_PRESS);
+                    } else {
+                        powerFSM.trigger(EVENT_WAKE_TIMER);
+                    }
+                }
+#else
+                powerFSM.trigger(EVENT_WAKE_TIMER);
+#endif
+                break;
+
+            default:
+                powerFSM.trigger(EVENT_WAKE_TIMER);
+                break;
+            }
+#endif // ARCH_RP2040
         } else {
             // Someone says we can't sleep now, so just save some power by sleeping the CPU for 100ms or so
             delay(100);
@@ -150,7 +186,7 @@ static void lsIdle()
         LOG_INFO("Reached ls_secs, service loop()");
         powerFSM.trigger(EVENT_WAKE_TIMER);
     }
-#endif
+#endif // ARCH_ESP32 || ARCH_RP2040
 }
 
 static void lsExit()
@@ -394,8 +430,26 @@ void PowerFSM_setup()
     }
 #endif // HAS_WIFI || !defined(MESHTASTIC_EXCLUDE_WIFI)
 
-#else // (not) ARCH_ESP32
-    // If not ESP32, light-sleep not used. Check periodically if config has drifted out of stateDark
+#elif defined(ARCH_RP2040)
+    // RP2040/RP2350 light sleep support
+    // Similar to ESP32, but uses POWMAN-based sleep on RP2350
+    if (isRouter || config.power.is_power_saving) {
+        powerFSM.add_timed_transition(&stateNB, &stateLS,
+                                      Default::getConfiguredOrDefaultMs(config.power.min_wake_secs, default_min_wake_secs), NULL,
+                                      "Min wake timeout");
+
+        powerFSM.add_timed_transition(
+            &stateDARK, &stateLS,
+            Default::getConfiguredOrDefaultMs(config.power.wait_bluetooth_secs, default_wait_bluetooth_secs), NULL,
+            "Bluetooth timeout");
+    } else {
+        // Not using power-saving, check periodically if config has drifted out of stateDark
+        powerFSM.add_timed_transition(&stateDARK, &stateDARK,
+                                      Default::getConfiguredOrDefaultMs(config.display.screen_on_secs, default_screen_on_secs),
+                                      NULL, "Screen-on timeout");
+    }
+#else // (not) ARCH_ESP32 and (not) ARCH_RP2040
+    // If not ESP32 or RP2040, light-sleep not used. Check periodically if config has drifted out of stateDark
     powerFSM.add_timed_transition(&stateDARK, &stateDARK,
                                   Default::getConfiguredOrDefaultMs(config.display.screen_on_secs, default_screen_on_secs), NULL,
                                   "Screen-on timeout");

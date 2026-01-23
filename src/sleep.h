@@ -13,6 +13,21 @@ esp_sleep_wakeup_cause_t doLightSleep(uint64_t msecToWake);
 extern esp_sleep_source_t wakeCause;
 #endif
 
+#ifdef ARCH_RP2040
+// RP2040/RP2350 light sleep support
+// Wake cause enum for RP2350 (compatible with ESP32 pattern)
+typedef enum {
+    RP2_SLEEP_WAKEUP_UNDEFINED = 0,
+    RP2_SLEEP_WAKEUP_TIMER = 1,
+    RP2_SLEEP_WAKEUP_GPIO = 2,
+    RP2_SLEEP_WAKEUP_UART = 3,  // Reserved for future use
+} rp2_sleep_wakeup_cause_t;
+
+rp2_sleep_wakeup_cause_t doLightSleep(uint64_t msecToWake);
+
+extern rp2_sleep_wakeup_cause_t rp2WakeCause;
+#endif
+
 #ifdef HAS_PMU
 #include "XPowersLibInterface.hpp"
 extern XPowersLibInterface *PMU;
