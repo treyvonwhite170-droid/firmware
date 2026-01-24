@@ -34,7 +34,8 @@ enum class BatterySensorResult : uint8_t {
     ERROR_COMMUNICATION,   ///< Communication failure (I2C, SPI, etc.)
     ERROR_INVALID_READING, ///< Reading outside valid range
     ERROR_NO_BATTERY,      ///< No battery detected
-    ERROR_TIMEOUT          ///< Operation timed out
+    ERROR_TIMEOUT,         ///< Operation timed out
+    ERROR_NOT_SUPPORTED    ///< Operation not supported on this platform
 };
 
 /**

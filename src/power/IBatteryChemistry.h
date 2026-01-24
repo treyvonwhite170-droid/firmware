@@ -145,8 +145,10 @@ class IBatteryChemistry {
 
   protected:
     IBatteryChemistry() = default;
-    IBatteryChemistry(const IBatteryChemistry &) = delete;
-    IBatteryChemistry &operator=(const IBatteryChemistry &) = delete;
+    IBatteryChemistry(const IBatteryChemistry &) = default;
+    IBatteryChemistry &operator=(const IBatteryChemistry &) = default;
+    IBatteryChemistry(IBatteryChemistry &&) = default;
+    IBatteryChemistry &operator=(IBatteryChemistry &&) = default;
 };
 
 /**
@@ -171,6 +173,12 @@ class BatteryChemistry : public IBatteryChemistry {
      * @param num_cells Number of cells in series (default 1)
      */
     explicit BatteryChemistry(BatteryType type = BatteryType::LION, uint8_t num_cells = 1);
+
+    // Allow copy and move semantics for assignment in PowerManager
+    BatteryChemistry(const BatteryChemistry &) = default;
+    BatteryChemistry &operator=(const BatteryChemistry &) = default;
+    BatteryChemistry(BatteryChemistry &&) = default;
+    BatteryChemistry &operator=(BatteryChemistry &&) = default;
 
     BatteryType getType() const override { return config_.type; }
 

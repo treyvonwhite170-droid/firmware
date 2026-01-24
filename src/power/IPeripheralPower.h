@@ -48,7 +48,7 @@ enum class PeripheralPowerResult : uint8_t {
  */
 enum class PeripheralType : uint8_t {
     UNKNOWN = 0,
-    DISPLAY,     ///< OLED/TFT/E-ink display
+    SCREEN,      ///< OLED/TFT/E-ink display (avoid DISPLAY macro conflict)
     GPS,         ///< GPS/GNSS module
     LORA,        ///< LoRa radio
     LED,         ///< LED indicator(s)

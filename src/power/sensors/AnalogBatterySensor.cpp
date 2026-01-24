@@ -304,9 +304,15 @@ bool AnalogBatterySensor::initializePlatformADC()
     analogReadResolution(config_.resolution_bits);
     return true;
 
+#elif defined(ARCH_PORTDUINO)
+    // Native/Portduino: No ADC hardware to configure
+    return true;
+
 #else
-    // Generic Arduino
+    // Generic Arduino - check if analogReadResolution is available
+#if defined(analogReadResolution) || defined(ARDUINO)
     analogReadResolution(config_.resolution_bits);
+#endif
     return true;
 #endif
 }
