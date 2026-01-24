@@ -15,7 +15,11 @@
  * @license GPL-3.0
  */
 
+// Include configuration first to get variant defines
+#include "configuration.h"
+
 #include "PowerManager.h"
+#include "VariantPowerConfig.h"
 #include "sensors/AnalogBatterySensor.h"
 #include "sensors/PMUBatterySensor.h"
 #include <cassert>
@@ -23,6 +27,12 @@
 // Platform-specific sleep manager includes
 #if defined(ARCH_ESP32)
 #include "sleep/ESP32SleepManager.h"
+#endif
+
+// PMU header if available
+#if defined(HAS_PMU)
+#include "XPowersLibInterface.hpp"
+extern XPowersLibInterface *PMU;
 #endif
 
 namespace meshtastic {
@@ -75,8 +85,13 @@ PowerManagerResult PowerManager::initialize(const PowerManagerConfig &config)
 
     config_ = config;
 
-    // Initialize battery chemistry
-    chemistry_ = BatteryChemistry(config.battery_type, config.num_cells);
+    // Initialize battery chemistry from variant or config
+    if (config.auto_detect_sensors) {
+        // Use variant-specific chemistry (respects OCV_ARRAY, CELL_TYPE_*, etc.)
+        chemistry_ = createVariantChemistry();
+    } else {
+        chemistry_ = BatteryChemistry(config.battery_type, config.num_cells);
+    }
 
     // Initialize battery sensor
     if (!initializeBatterySensor()) {
@@ -233,7 +248,8 @@ void PowerManager::restorePeripheralsAfterWake()
 /**
  * @brief Initialize battery sensor with auto-detection.
  *
- * Tries sensors in priority order: PMU > Fuel Gauge > Analog
+ * Tries sensors in priority order: PMU > Fuel Gauge > Analog.
+ * Uses variant-specific configuration from VariantPowerConfig.h.
  *
  * NASA Rule 4: Under 60 lines
  */
@@ -241,9 +257,15 @@ bool PowerManager::initializeBatterySensor()
 {
 #if defined(HAS_PMU)
     // Try PMU sensor first (highest priority)
-    extern XPowersLibInterface *PMU;
     if (PMU != nullptr) {
         static PMUSensorConfig pmu_config;
+        // Configure PMU from variant
+#if defined(PMU_IRQ)
+        pmu_config.irq_pin = PMU_IRQ;
+#endif
+#if defined(PMU_USE_WIRE1)
+        pmu_config.use_wire1 = true;
+#endif
         static PMUBatterySensor pmu_sensor(PMU, pmu_config, chemistry_);
         s_pmu_sensor = &pmu_sensor;
 
@@ -254,59 +276,35 @@ bool PowerManager::initializeBatterySensor()
     }
 #endif
 
-#if defined(BATTERY_PIN)
-    // Try analog sensor
-    static AnalogSensorConfig analog_config;
-    analog_config.battery_pin = BATTERY_PIN;
-#if defined(ADC_MULTIPLIER)
-    analog_config.adc_multiplier = ADC_MULTIPLIER;
-#endif
-#if defined(EXT_PWR_DETECT)
-    analog_config.ext_pwr_detect_pin = EXT_PWR_DETECT;
-#endif
-#if defined(EXT_CHRG_DETECT)
-    analog_config.ext_chrg_detect_pin = EXT_CHRG_DETECT;
-#endif
-#if defined(ADC_CTRL)
-    analog_config.adc_ctrl_pin = ADC_CTRL;
-#endif
-#if defined(BATTERY_IMMUTABLE)
-    analog_config.battery_immutable = true;
-#endif
+    // Try analog sensor if variant supports it
+    if (hasVariantAnalogBattery()) {
+        // Use variant configuration helper for full define coverage
+        static AnalogSensorConfig analog_config = createVariantAnalogConfig();
+        static AnalogBatterySensor analog_sensor(analog_config, chemistry_);
+        s_analog_sensor = &analog_sensor;
 
-    static AnalogBatterySensor analog_sensor(analog_config, chemistry_);
-    s_analog_sensor = &analog_sensor;
-
-    if (s_analog_sensor->initialize() == BatterySensorResult::SUCCESS) {
-        battery_sensor_ = s_analog_sensor;
-        return true;
+        if (s_analog_sensor->initialize() == BatterySensorResult::SUCCESS) {
+            battery_sensor_ = s_analog_sensor;
+            return true;
+        }
     }
-#endif
 
     // No sensor available - use null
     return false;
 }
 
+/**
+ * @brief Initialize sleep manager for current platform.
+ *
+ * Uses variant-specific wake configuration.
+ *
+ * NASA Rule 4: Under 60 lines
+ */
 bool PowerManager::initializeSleepManager()
 {
 #if defined(ARCH_ESP32)
-    static ESP32WakeConfig wake_config;
-
-#if defined(BUTTON_PIN)
-    wake_config.button_pin = BUTTON_PIN;
-#if defined(BUTTON_NEED_PULLUP)
-    wake_config.button_need_pullup = true;
-#endif
-#endif
-
-#if defined(LORA_DIO1)
-    wake_config.lora_dio1_pin = LORA_DIO1;
-#endif
-
-#if defined(PMU_IRQ)
-    wake_config.pmu_irq_pin = PMU_IRQ;
-#endif
-
+    // Use variant configuration helper for ESP32
+    static ESP32WakeConfig wake_config = createVariantESP32WakeConfig();
     static ESP32SleepManager esp32_sleep(wake_config);
     s_esp32_sleep_manager = &esp32_sleep;
 
@@ -316,14 +314,16 @@ bool PowerManager::initializeSleepManager()
     }
 #endif
 
+    // TODO: Add NRF52, RP2040, STM32WL sleep managers
+
     // No sleep manager for this platform
     return false;
 }
 
 bool PowerManager::initializePeripheralPower()
 {
-    // Peripheral power would be configured here
-    // For now, use null implementation
+    // TODO: Implement variant-specific peripheral power control
+    // using hasVariantPeripheralPower(), getVariantPowerEnablePin(), etc.
     peripheral_power_ = &null_peripheral_;
     return true;
 }
